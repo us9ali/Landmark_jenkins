@@ -1,10 +1,12 @@
 pipeline {
     agent any
+    tools {
+        nodejs 'NodeJS-18'
+    }
     environment {
-        ECR_REGISTRY = credentials('ecr-registry')
+        DOCKER_REPO = 'chafah/landmark-web-app'
         AWS_REGION = 'us-east-1'
         EKS_CLUSTER = 'landmark-eks'
-        DOCKER_REPO = 'chafah/landmark-web-app'
     }
     stages {
         stage('Checkout') {
@@ -33,39 +35,48 @@ pipeline {
             when {
                 anyOf {
                     branch 'develop'
-                    branch 'release*'
+                    branch pattern: 'release*', comparator: 'GLOB'
                     branch 'main'
-                    branch 'hotfix*'
+                    branch pattern: 'hotfix*', comparator: 'GLOB'
                 }
             }
             steps {
-                sh """
-                    aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                    docker build -t ${ECR_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG} .
-                    docker push ${ECR_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG}
-                """
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
+                        def app = docker.build("${DOCKER_REPO}:${IMAGE_TAG}")
+                        app.push()
+                    }
+                }
             }
         }
         stage('Deploy to Dev') {
             when { branch 'develop' }
             steps {
-                sh """
-                    aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
-                    sed -i 's/namespace: landmark/namespace: develop/g' k8s/*.yml
-                    sed -i "s|image: landmark-technologies:latest|image: ${ECR_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
-                    kubectl apply -f k8s/
-                """
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh """
+                        aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
+                        sed -i 's/name: landmark/name: develop/g' k8s/namespace.yml
+                        sed -i 's/namespace: landmark/namespace: develop/g' k8s/*.yml
+                        sed -i "s|image: landmark-technologies:latest|image: ${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
+                        kubectl apply -f k8s/namespace.yml
+                        kubectl apply -f k8s/
+                    """
+                }
             }
         }
         stage('Deploy to Staging') {
             when { branch pattern: 'release*', comparator: 'GLOB' }
             steps {
-                sh """
-                    aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
-                    sed -i 's/namespace: landmark/namespace: staging/g' k8s/*.yml
-                    sed -i "s|image: landmark-technologies:latest|image: ${ECR_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
-                    kubectl apply -f k8s/
-                """
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh """
+                        aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
+                        sed -i 's/name: landmark/name: staging/g' k8s/namespace.yml
+                        sed -i 's/namespace: landmark/namespace: staging/g' k8s/*.yml
+                        sed -i "s|image: landmark-technologies:latest|image: ${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
+                        kubectl apply -f k8s/namespace.yml
+                        kubectl apply -f k8s/
+                    """
+                }
             }
         }
         stage('Deploy to Production') {
@@ -76,17 +87,22 @@ pipeline {
                 }
             }
             steps {
-                sh """
-                    aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
-                    sed -i 's/namespace: landmark/namespace: production/g' k8s/*.yml
-                    sed -i "s|image: landmark-technologies:latest|image: ${ECR_REGISTRY}/${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
-                    kubectl apply -f k8s/
-                """
+                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
+                    sh """
+                        aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
+                        sed -i 's/name: landmark/name: production/g' k8s/namespace.yml
+                        sed -i 's/namespace: landmark/namespace: production/g' k8s/*.yml
+                        sed -i "s|image: landmark-technologies:latest|image: ${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
+                        kubectl apply -f k8s/namespace.yml
+                        kubectl apply -f k8s/
+                    """
+                }
             }
         }
     }
     post {
-        failure { echo 'Pipeline failed!' }
         success { echo 'Pipeline succeeded!' }
+        failure { echo 'Pipeline failed!' }
+        always  { cleanWs() }
     }
 }
