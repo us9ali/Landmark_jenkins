@@ -496,9 +496,9 @@ pipeline {
 
 ### 3. Multibranch Pipeline
 
-**Definition:** Automatically scans a repository for ALL branches that contain a `Jenkinsfile`, and creates a separate pipeline job for each branch. Branches without a Jenkinsfile are ignored.
+**Definition:** Automatically scans a repository for branches that contain a `Jenkinsfile` and creates a pipeline job for each branch.
 
-**When to use:** Teams working with multiple branches (feature, develop, release, main). This is the recommended approach for real projects.
+**When to use:** The recommended approach for real projects with multiple branches.
 
 **Setup for Landmark app:**
 
@@ -506,23 +506,25 @@ pipeline {
 2. **Branch Sources → Add source → GitHub:**
    - Credentials: `github-token`
    - Repository URL: `https://github.com/CHAFAH/landmark-web-app.git`
-3. **Build Configuration:**
+3. **Behaviours → Add → Filter by name (with regular expression):**
+   - Regular expression: `(main|release.*)`
+   - This ensures only `main` and `release*` branches are built
+4. **Build Configuration:**
    - Mode: by Jenkinsfile
    - Script Path: `Jenkinsfile`
-4. **Scan Multibranch Pipeline Triggers:** Periodically → 1 minute
-5. **Orphaned Item Strategy:** Discard old items → Days to keep: 7
-6. Click **Save**
+5. Click **Save**
 
-Jenkins scans the repo and creates sub-jobs:
-```
-landmark-web-app/
-├── main        (builds and deploys to production)
-├── develop     (builds and deploys to dev)
-├── release     (builds and deploys to staging)
-└── feature/xyz (builds and tests only)
-```
+**Trigger by push (GitHub Webhook):**
 
-The `Jenkinsfile` uses `when { branch '...' }` to control what happens per branch:
+1. GitHub repo → Settings → Webhooks → Add webhook
+2. Payload URL: `http://<jenkins-ip>:8080/github-webhook/`
+3. Content type: `application/json`
+4. Events: "Just the push event"
+5. Click **Add webhook**
+
+Now any push to `main` or `release*` triggers the pipeline automatically.
+
+**Jenkinsfile:**
 
 ```groovy
 pipeline {
@@ -546,45 +548,16 @@ pipeline {
         stage('Build') {
             steps { sh 'npm run build' }
         }
-        stage('Generate Image Tag') {
+        stage('Docker Build & Push') {
             steps {
                 script {
                     def branch = env.BRANCH_NAME.replaceAll('/', '-')
                     def timestamp = new Date().format('yyyyMMdd-HHmmss')
                     env.IMAGE_TAG = "${branch}-${timestamp}"
-                }
-            }
-        }
-        stage('Docker Build & Push') {
-            when {
-                anyOf {
-                    branch 'develop'
-                    branch pattern: 'release*', comparator: 'GLOB'
-                    branch 'main'
-                    branch pattern: 'hotfix*', comparator: 'GLOB'
-                }
-            }
-            steps {
-                script {
                     docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
                         def app = docker.build("${DOCKER_REPO}:${IMAGE_TAG}")
                         app.push()
                     }
-                }
-            }
-        }
-        stage('Deploy to Dev') {
-            when { branch 'develop' }
-            steps {
-                withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
-                    sh """
-                        aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION}
-                        sed -i 's/name: landmark/name: develop/g' k8s/namespace.yml
-                        sed -i 's/namespace: landmark/namespace: develop/g' k8s/*.yml
-                        sed -i "s|image: landmark-technologies:latest|image: ${DOCKER_REPO}:${IMAGE_TAG}|g" k8s/app-deployment.yml
-                        kubectl apply -f k8s/namespace.yml
-                        kubectl apply -f k8s/
-                    """
                 }
             }
         }
@@ -604,12 +577,7 @@ pipeline {
             }
         }
         stage('Deploy to Production') {
-            when {
-                anyOf {
-                    branch 'main'
-                    branch pattern: 'hotfix*', comparator: 'GLOB'
-                }
-            }
+            when { branch 'main' }
             steps {
                 withAWS(credentials: 'aws-creds', region: "${AWS_REGION}") {
                     sh """
@@ -632,7 +600,9 @@ pipeline {
 }
 ```
 
-**Advantages over Pipeline:** Auto-discovers branches, no need to create a job per branch, integrates with PRs, `env.BRANCH_NAME` available for conditional logic.
+**What happens:**
+- Push to `main` → test → build → docker push → deploy to **production**
+- Push to `release*` → test → build → docker push → deploy to **staging**
 
 ---
 
