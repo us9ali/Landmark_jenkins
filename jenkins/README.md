@@ -426,17 +426,29 @@ pipeline {
 
 1. Jenkins Dashboard → **New Item** → Name: `landmark-web-app` → **Multibranch Pipeline** → OK
 2. **Branch Sources → Add source → GitHub:**
-   - Credentials: `github-token`
-   - Repository URL: `https://github.com/CHAFAH/landmark-web-app.git`
-3. **Behaviours → Add → Filter by name (with regular expression):**
-   - Regular expression: `(main|release.*)`
-   - This ensures only `main` and `release*` branches are built
+   - Credentials: Click **Add → Jenkins** → Kind: Username with password → Username: your GitHub username → Password: your GitHub PAT → ID: `github-token` → Add. Then select it from the dropdown.
+   - Repository HTTPS URL: `https://github.com/LandmakTechnology/landmark-web-app.git`
+3. **Behaviours:**
+   - Keep **Discover branches** → Strategy: **All branches**
+   - Delete "Discover pull requests from origin"
+   - Delete "Discover pull requests from forks"
+   - Click **Add → Filter by name (with regular expression)**
+   - Regular expression: `(main|release.*|develop)`
 4. **Build Configuration:**
    - Mode: by Jenkinsfile
    - Script Path: `Jenkinsfile`
-5. Click **Save**
+5. **Scan Repository Triggers:** ✅ Periodically if not otherwise run
+6. **Orphaned Item Strategy:** ✅ Discard old items → Days: 5, Max: 10
+7. Leave Docker Label, Kubernetes, Pipeline Libraries **empty**
+8. Click **Save**
 
-> **Note:** For Multibranch Pipelines, you don't need to check a "Build Triggers" box. The GitHub webhook automatically triggers a branch scan when a push happens.
+Jenkins scans the repo and creates sub-jobs for matching branches:
+```
+landmark-web-app/
+├── main        (builds and deploys to production)
+├── develop     (builds and deploys to dev)
+└── release     (builds and deploys to staging)
+```
 
 **Trigger by push (GitHub Webhook):**
 
