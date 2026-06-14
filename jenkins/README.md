@@ -399,12 +399,15 @@ When you click **New Item** in Jenkins, you see these job types. Here they are f
 
 **When to use:** Simple build/test tasks, running shell scripts, learning Jenkins.
 
+**Webhook support:** ✅ Yes
+
 **Setup for Landmark app:**
 
 1. Jenkins Dashboard → **New Item** → Name: `landmark-freestyle` → **Freestyle project** → OK
 2. **Source Code Management:** Git → URL: `https://github.com/CHAFAH/landmark-web-app.git` → Branch: `*/main`
 3. **Build Environment:** ✅ Provide Node & npm bin/folder to PATH → NodeJS-18
-4. **Build Steps → Add → Execute shell:**
+4. **Build Triggers:** ✅ **GitHub hook trigger for GITScm polling**
+5. **Build Steps → Add → Execute shell:**
 
 ```bash
 echo "=== Installing Dependencies ==="
@@ -424,8 +427,7 @@ echo $DOCKERHUB_PASS | docker login -u $DOCKERHUB_USER --password-stdin
 docker push chafah/landmark-web-app:latest
 ```
 
-5. **Build Triggers:** ✅ Poll SCM → `H/5 * * * *`
-6. Click **Save** → **Build Now**
+6. Click **Save**
 
 **Limitations:** No version control of the job config, no conditional stages, no parallel execution.
 
@@ -437,13 +439,15 @@ docker push chafah/landmark-web-app:latest
 
 **When to use:** Any real CI/CD workflow. This is the standard for production pipelines.
 
+**Webhook support:** ✅ Yes
+
 **Setup for Landmark app:**
 
 1. Jenkins Dashboard → **New Item** → Name: `landmark-pipeline` → **Pipeline** → OK
 2. **Pipeline → Definition:** Pipeline script from SCM
 3. **SCM:** Git → URL: `https://github.com/CHAFAH/landmark-web-app.git` → Branch: `*/main`
 4. **Script Path:** `Jenkinsfile`
-5. **Build Triggers:** ✅ GitHub hook trigger for GITScm polling
+5. **Build Triggers:** ✅ **GitHub hook trigger for GITScm polling**
 6. Click **Save**
 
 Jenkins reads the `Jenkinsfile` from the repo and executes it:
@@ -500,6 +504,8 @@ pipeline {
 
 **When to use:** The recommended approach for real projects with multiple branches.
 
+**Webhook support:** ✅ Yes (auto-configured — webhook triggers a branch scan)
+
 **Setup for Landmark app:**
 
 1. Jenkins Dashboard → **New Item** → Name: `landmark-web-app` → **Multibranch Pipeline** → OK
@@ -513,6 +519,8 @@ pipeline {
    - Mode: by Jenkinsfile
    - Script Path: `Jenkinsfile`
 5. Click **Save**
+
+> **Note:** For Multibranch Pipelines, you don't need to check a "Build Triggers" box. The GitHub webhook automatically triggers a branch scan when a push happens.
 
 **Trigger by push (GitHub Webhook):**
 
@@ -612,6 +620,8 @@ pipeline {
 
 **When to use:** Organizing jobs by team, project, or environment.
 
+**Webhook support:** ❌ No (folders don't run builds)
+
 **Setup:**
 
 1. Jenkins Dashboard → **New Item** → Name: `landmark-technologies` → **Folder** → OK
@@ -633,6 +643,8 @@ landmark-technologies/          (Folder)
 **Definition:** Runs the same build across multiple configurations (combinations of axes). For example, testing on multiple OS versions, Java versions, or browser types simultaneously.
 
 **When to use:** Cross-platform testing, compatibility matrices.
+
+**Webhook support:** ✅ Yes (same as Freestyle — check "GitHub hook trigger for GITScm polling")
 
 **Setup for Landmark app (test on Node 18 and Node 20):**
 
@@ -686,15 +698,65 @@ pipeline {
 
 ### Summary: Which Job Type to Use
 
-| Job Type | Use Case | Recommended? |
-|----------|----------|--------------|
-| Freestyle | Simple scripts, learning Jenkins | ❌ Not for production |
-| Pipeline | Single-branch CI/CD | ✅ Good |
-| Multibranch Pipeline | Multi-branch CI/CD with auto-discovery | ✅ Best for most projects |
-| Folder | Organizing multiple jobs | ✅ Always use for structure |
-| Multi-configuration | Cross-platform matrix testing | ⚠️ Use pipeline `matrix` instead |
+| Job Type | Use Case | Webhook Support | Recommended? |
+|----------|----------|:---------------:|--------------|
+| Freestyle | Simple scripts, learning Jenkins | ✅ | ❌ Not for production |
+| Pipeline | Single-branch CI/CD | ✅ | ✅ Good |
+| Multibranch Pipeline | Multi-branch CI/CD with auto-discovery | ✅ (auto) | ✅ Best for most projects |
+| Folder | Organizing multiple jobs | ❌ | ✅ Always use for structure |
+| Multi-configuration | Cross-platform matrix testing | ✅ | ⚠️ Use pipeline `matrix` instead |
 
 For the Landmark project, we use **Multibranch Pipeline** inside a **Folder**.
+
+---
+
+### Setting Up GitHub Webhook (Required for All Webhook-Enabled Jobs)
+
+This is a one-time setup per repository. The same webhook works for all Jenkins jobs that monitor this repo.
+
+**Prerequisites:**
+- Jenkins must be accessible from the internet (public IP or domain)
+- The **GitHub Integration** plugin must be installed
+
+**Steps:**
+
+1. Go to your GitHub repo → **Settings → Webhooks → Add webhook**
+2. Fill in:
+
+| Field | Value |
+|-------|-------|
+| Payload URL | `http://<jenkins-public-ip>:8080/github-webhook/` |
+| Content type | `application/json` |
+| Secret | (leave empty or set a secret for verification) |
+| Which events? | "Just the push event" |
+| Active | ✅ |
+
+3. Click **Add webhook**
+4. GitHub sends a test ping — verify it shows a ✅ green check under **Recent Deliveries**
+
+**How it works:**
+```
+Developer pushes to GitHub
+        │
+        ▼
+GitHub sends POST to http://<jenkins-ip>:8080/github-webhook/
+        │
+        ▼
+Jenkins receives the webhook
+        │
+        ├── Freestyle/Pipeline: triggers build if "GitHub hook trigger" is checked
+        └── Multibranch: triggers branch scan → builds the pushed branch
+```
+
+**Troubleshooting webhooks:**
+
+| Problem | Check |
+|---------|-------|
+| ❌ Red X in Recent Deliveries | Jenkins not reachable — check Security Group allows 8080 from `0.0.0.0/0` |
+| Webhook delivered but no build | Freestyle/Pipeline: ensure "GitHub hook trigger for GITScm polling" is checked |
+| Multibranch not building | Check branch filter regex matches the pushed branch |
+| Response 403 | CSRF issue — ensure GitHub Integration plugin is installed |
+| Response timeout | Jenkins is behind a firewall or NAT — needs public access |
 
 ---
 
@@ -720,14 +782,6 @@ For the Landmark project, we use **Multibranch Pipeline** inside a **Folder**.
 ---
 
 ## Advanced Jenkins
-
-### GitHub Webhooks (Auto-trigger builds)
-
-1. GitHub repo → Settings → Webhooks → Add webhook
-2. Payload URL: `http://<jenkins-ip>:8080/github-webhook/`
-3. Content type: `application/json`
-4. Events: "Just the push event"
-5. In Jenkins job → Build Triggers → ✅ "GitHub hook trigger for GITScm polling"
 
 ### Shared Libraries
 
