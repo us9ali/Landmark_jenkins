@@ -9,9 +9,9 @@ A practical guide to setting up Jenkins for the Landmark Technologies web applic
 1. [Installing Jenkins on Amazon Linux](#installing-jenkins-on-amazon-linux)
 2. [Accessing Jenkins](#accessing-jenkins)
 3. [Installing Default Plugins](#installing-default-plugins)
-4. [Pipeline Types and Examples](#pipeline-types-and-examples)
-5. [Setting Up Credentials](#setting-up-credentials)
-6. [Additional Plugins](#additional-plugins)
+4. [Setting Up Credentials](#setting-up-credentials)
+5. [Tools Required on Jenkins Server](#tools-required-on-jenkins-server)
+6. [Pipeline Types and Examples](#pipeline-types-and-examples)
 7. [Creating a Pipeline for This Application](#creating-a-pipeline-for-this-application)
 8. [Advanced Jenkins](#advanced-jenkins)
 
@@ -58,24 +58,6 @@ sudo systemctl enable jenkins
 sudo systemctl status jenkins
 ```
 
-### Step 4: Install Required Server Tools
-
-```bash
-# Git
-sudo dnf install git -y
-
-# Docker
-sudo dnf install docker -y
-sudo systemctl start docker && sudo systemctl enable docker
-sudo usermod -aG docker jenkins
-sudo systemctl restart jenkins
-
-# AWS CLI
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
-sudo ./aws/install
-```
-
 ---
 
 ## Accessing Jenkins
@@ -113,34 +95,83 @@ Set to `http://<your-ec2-public-ip>:8080/` and click **Save and Finish**.
 
 ## Installing Default Plugins
 
-After initial setup, install these additional plugins for our project.
-
 Go to **Manage Jenkins → Plugins → Available plugins** and install:
 
 | Plugin | Purpose |
 |--------|---------|
 | **NodeJS** | Auto-installs Node.js for builds |
-| **Docker Pipeline** | Docker build/push DSL (`docker.build()`, `docker.withRegistry()`) |
+| **Docker Pipeline** | `docker.build()`, `docker.withRegistry()` |
 | **Docker** | Docker agent support |
-| **Kubernetes CLI** | Auto-installs kubectl + `withKubeConfig` step |
+| **Kubernetes CLI** | Auto-installs kubectl |
 | **Pipeline: AWS Steps** | `withAWS` credential injection |
-| **AWS Credentials** | AWS credential type in Jenkins |
-| **Multibranch Pipeline** | Auto-discover branches |
+| **AWS Credentials** | AWS credential type |
 | **GitHub Integration** | Webhooks & commit status |
-| **Blue Ocean** | Modern pipeline visualization |
-| **Role Strategy** | Role-based access control |
 | **Workspace Cleanup** | Clean workspace between builds |
 
-After installing, restart Jenkins.
+Restart Jenkins after installing.
 
 ### Configure NodeJS Tool
 
-1. Go to **Manage Jenkins → Tools**
-2. Scroll to **NodeJS installations → Add NodeJS**
-3. Name: `NodeJS-18`
-4. Check "Install automatically"
-5. Select version: `18.x`
-6. Click **Save**
+1. **Manage Jenkins → Tools → NodeJS installations → Add NodeJS**
+2. Name: `NodeJS-18`
+3. ✅ Install automatically → version `18.x`
+4. **Save**
+
+---
+
+## Setting Up Credentials
+
+Go to **Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
+
+### 1. GitHub Token
+
+| Field | Value |
+|-------|-------|
+| Kind | Secret text |
+| Secret | Your GitHub PAT (`repo` scope) |
+| ID | `github-token` |
+
+### 2. Docker Hub
+
+| Field | Value |
+|-------|-------|
+| Kind | Username with password |
+| Username | Your Docker Hub username |
+| Password | Docker Hub access token |
+| ID | `dockerhub-creds` |
+
+### 3. AWS Credentials
+
+| Field | Value |
+|-------|-------|
+| Kind | AWS Credentials |
+| Access Key ID | Your IAM access key |
+| Secret Access Key | Your IAM secret key |
+| ID | `aws-creds` |
+
+---
+
+## Tools Required on Jenkins Server
+
+```bash
+# Git
+sudo dnf install git -y
+
+# Docker
+sudo dnf install docker -y
+sudo systemctl start docker && sudo systemctl enable docker
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+
+# AWS CLI
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+```
+
+**Provided by plugins (no server install needed):**
+- Node.js → **NodeJS** plugin
+- kubectl → **Kubernetes CLI** plugin
 
 ---
 
@@ -269,121 +300,6 @@ Jenkins auto-discovers all branches with a `Jenkinsfile` and builds them.
 6. Branch: `*/main`
 7. Script Path: `Jenkinsfile`
 8. Save
-
----
-
-## Setting Up Credentials
-
-Go to **Manage Jenkins → Credentials → System → Global credentials → Add Credentials**
-
-### Docker Hub Credentials
-
-| Field | Value |
-|-------|-------|
-| Kind | Username with password |
-| Scope | Global |
-| Username | Your Docker Hub username |
-| Password | Docker Hub access token (generate at https://hub.docker.com/settings/security) |
-| ID | `dockerhub-creds` |
-| Description | Docker Hub login |
-
-**Usage in pipeline:**
-```groovy
-script {
-    docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
-        def app = docker.build("chafah/landmark-web-app:${IMAGE_TAG}")
-        app.push()
-    }
-}
-```
-
-### AWS Credentials
-
-Requires the **AWS Credentials** plugin.
-
-| Field | Value |
-|-------|-------|
-| Kind | AWS Credentials |
-| Scope | Global |
-| ID | `aws-creds` |
-| Description | AWS IAM for EKS |
-| Access Key ID | Your IAM access key |
-| Secret Access Key | Your IAM secret key |
-
-**Usage in pipeline:**
-```groovy
-withAWS(credentials: 'aws-creds', region: 'us-east-1') {
-    sh 'aws eks update-kubeconfig --name landmark-eks --region us-east-1'
-    sh 'kubectl apply -f k8s/'
-}
-```
-
-### GitHub Token
-
-| Field | Value |
-|-------|-------|
-| Kind | Secret text |
-| Scope | Global |
-| Secret | Your GitHub PAT (needs `repo` scope) |
-| ID | `github-token` |
-| Description | GitHub PAT |
-
-**Usage in pipeline:**
-```groovy
-checkout scm  // Multibranch auto-uses configured credentials
-```
-
-### SSH Key (for deployment servers)
-
-| Field | Value |
-|-------|-------|
-| Kind | SSH Username with private key |
-| Scope | Global |
-| Username | `ec2-user` |
-| Private Key | Enter directly → paste private key |
-| ID | `deploy-server-ssh` |
-| Description | Deployment server SSH |
-
-**Usage in pipeline:**
-```groovy
-sshagent(['deploy-server-ssh']) {
-    sh 'ssh ec2-user@10.0.1.100 "docker pull chafah/landmark-web-app:latest"'
-}
-```
-
-### Kubeconfig (for Kubernetes CLI plugin)
-
-| Field | Value |
-|-------|-------|
-| Kind | Secret file |
-| Scope | Global |
-| File | Upload your `~/.kube/config` |
-| ID | `kubeconfig` |
-| Description | EKS kubeconfig |
-
-**Usage in pipeline:**
-```groovy
-withKubeConfig([credentialsId: 'kubeconfig']) {
-    sh 'kubectl apply -f k8s/'
-}
-```
-
----
-
-## Additional Plugins
-
-These plugins are useful for more advanced workflows:
-
-| Plugin | Purpose |
-|--------|---------|
-| **Slack Notification** | Send build notifications to Slack |
-| **Email Extension** | Advanced email notifications |
-| **SSH Agent** | Inject SSH keys into pipeline |
-| **Maven Integration** | Maven build support |
-| **JUnit** | Test result visualization |
-| **Credentials Binding** | Inject credentials as env vars |
-| **Pipeline: Input Step** | Manual approval gates |
-| **Kubernetes** | Dynamic K8s pod agents |
 
 ---
 
