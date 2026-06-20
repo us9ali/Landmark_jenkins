@@ -2,11 +2,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: landmark-app-lb
-  namespace: landmark
+  namespace: production
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-092445457fcf677b9, subnet-0acf59edb9d502cde"
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0e6715f30679eb528, subnet-0eaa9b8fef5b49830"
 spec:
   type: LoadBalancer
   selector:
