@@ -1,10 +1,10 @@
 pipeline {
     agent any
     tools {
-        nodejs 'NodeJS-18'
+        nodejs 'nodejs'
     }
     environment {
-        DOCKER_REPO = 'chafah/landmark-web-app'
+        DOCKER_REPO = 'us9ali/landmark_jenkins'
         AWS_REGION = 'us-east-1'
         EKS_CLUSTER = 'landmark-eks'
     }
