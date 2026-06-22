@@ -1,6 +1,6 @@
 # Landmark Technologies
 
-A full-stack web application for Landmark Technologies — an online DevOps and AI training platform.
+This is a full-stack web application for Landmark Technologies — an online DevOps and AI training platform.
 
 ![Landmark Technologies](public/logo.png)
 
